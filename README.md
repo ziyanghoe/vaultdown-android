@@ -2,7 +2,7 @@
 
 A native Android Markdown notebook with an Obsidian-inspired file tree and automatic GitHub sync. Kotlin, Jetpack Compose, SQLite, WorkManager, and a separately testable Java sync core.
 
-**Delivery status:** Version 0.2.4 includes GitHub OAuth device sign-in and repository/branch selection. The Vaultdown OAuth Client ID is configured; device flow must be enabled in the OAuth app settings. 29 core tests, Android compilation, and lint passed in [GitHub Actions](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34827990777). Version 0.2.4 hardens startup after a saved GitHub sync; corrupt saved connection/session data falls back to the offline vault without deleting local notes. Its build is pending. Live OAuth authorization requires device testing. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
+**Delivery status:** Version 0.2.5 includes GitHub OAuth device sign-in and repository/branch selection. The Vaultdown OAuth Client ID is configured; device flow must be enabled in the OAuth app settings. 29 core tests, Android compilation, and lint passed in [GitHub Actions](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34827990777). Version 0.2.5 makes task-list checkboxes interactive in Read mode. Its build is pending. Live OAuth authorization requires device testing. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
 
 ## What it does
 
