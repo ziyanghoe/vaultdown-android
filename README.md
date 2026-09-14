@@ -2,7 +2,7 @@
 
 A native Android Markdown notebook with an Obsidian-inspired file tree and automatic GitHub sync. Kotlin, Jetpack Compose, SQLite, WorkManager, and a separately testable Java sync core.
 
-**Delivery status:** Version 0.2.0 adds GitHub OAuth device sign-in and repository/branch selection. Configure the app Client ID as described below to enable sign-in. 29 core tests, Android compilation, and lint passed in [GitHub Actions](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34813784172). Live OAuth authorization still requires Client ID setup and device testing. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
+**Delivery status:** Version 0.2.1 includes GitHub OAuth device sign-in and repository/branch selection. The Vaultdown OAuth Client ID is configured; device flow must be enabled in the OAuth app settings. 29 core tests, Android compilation, and lint passed in [GitHub Actions](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34813784172). The configured 0.2.1 rebuild is pending. Live OAuth authorization requires device testing. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
 
 ## What it does
 
@@ -69,9 +69,9 @@ Repositories must contain at least one commit. Archived repositories and reposit
 
 Disconnect removes local credentials/config and scheduled jobs, while retaining cached notes. It does not revoke the OAuth grant on GitHub; revoke Vaultdown under GitHub Settings → Applications if desired. Existing stored personal tokens continue to work and can populate the picker; there is no manual token entry in the new UI.
 
-### One-time OAuth setup for the app owner
+### OAuth configuration for maintainers
 
-ChatGPT's GitHub connector authorizes ChatGPT; it cannot provide an OAuth identity for this separate Android application. Register a dedicated OAuth app for Vaultdown:
+Vaultdown uses its own OAuth application. Its public Client ID is the default in `app/build.gradle.kts`. For a fork or another OAuth registration:
 
 1. Open [GitHub → Developer settings → New OAuth App](https://github.com/settings/applications/new).
 2. Name: **Vaultdown**. Homepage: `https://github.com/ziyanghoe/vaultdown-android`. Callback URL: `https://github.com/ziyanghoe/vaultdown-android` (required by registration, unused by device flow).
@@ -79,7 +79,7 @@ ChatGPT's GitHub connector authorizes ChatGPT; it cannot provide an OAuth identi
 4. Copy the **Client ID**, not the client secret. In this source repository, create an Actions **variable** named `GITHUB_CLIENT_ID` under Settings → Secrets and variables → Actions → Variables.
 5. Run the Android workflow manually, then download the new APK. For a local build use `gradle -PgithubClientId=YOUR_CLIENT_ID :app:assembleDebug`.
 
-The Client ID is public and is compiled into the APK. No client secret or access token belongs in CI or source. A build without the Client ID remains usable offline and with a previously saved connection, but displays that sign-in is unavailable.
+The Client ID is public and is compiled into the APK. No client secret or access token belongs in CI or source. Blank CI variables fall back to the configured public Client ID.
 
 This implementation uses OAuth device authorization with `repo` scope for private repository editing. This scope is broad: GitHub grants access beyond the single repository selected for syncing. Only select and authorize an OAuth app you trust. Organization policies may require approval. Tokens and optional refresh tokens are encrypted with Android Keystore; expiring sessions refresh automatically. A revoked or expired refresh token requires signing in again. Pending authorization is held only in memory, survives activity rotation, and is cancelled when the connection dialog closes. After process death, start sign-in again.
 

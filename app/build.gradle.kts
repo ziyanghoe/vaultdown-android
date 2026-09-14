@@ -3,7 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
-val githubClientId = providers.environmentVariable("GITHUB_CLIENT_ID").orElse(providers.gradleProperty("githubClientId")).orElse("").get()
+// Public OAuth application identifier; never embed a client secret.
+val githubClientId = providers.environmentVariable("GITHUB_CLIENT_ID").orNull?.trim()?.takeIf { it.isNotEmpty() }
+    ?: providers.gradleProperty("githubClientId").orNull?.trim()?.takeIf { it.isNotEmpty() }
+    ?: "Ov23liJfzYP94e0th66a"
 require(githubClientId.matches(Regex("[A-Za-z0-9_.-]*"))) { "Invalid GitHub OAuth Client ID" }
 android {
     namespace = "dev.vaultdown.app"
@@ -12,8 +15,8 @@ android {
         applicationId = "dev.vaultdown.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$githubClientId\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
