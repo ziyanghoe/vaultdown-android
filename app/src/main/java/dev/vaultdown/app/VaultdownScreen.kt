@@ -23,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -284,6 +286,7 @@ import kotlinx.coroutines.withContext
     val login by vm.login.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val activity = context as? MainActivity
     val dismiss = { vm.closeLogin(); onDismiss() }
     LaunchedEffect(Unit) { vm.openLogin() }
@@ -305,11 +308,12 @@ import kotlinx.coroutines.withContext
                     } else if (login.code != null) {
                         Text("Enter this code on GitHub:")
                         SelectionContainer { Text(login.code.orEmpty(), fontSize = 25.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) }
+                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(login.code.orEmpty())) }) { Text("Copy code") }
                         Button(onClick = {
                             try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubLogin.VERIFY_URL))) }
                             catch (_: Exception) { vm.fail("Open github.com/login/device in your browser and enter the displayed code.") }
                         }) { Text("Open GitHub") }
-                        Text("After authorizing Vaultdown, return here. Waiting for approval…", fontSize = 12.sp)
+                        Text("After authorizing Vaultdown, return here. Waiting for approval… The code stays available until it expires, even if Android recreates the app.", fontSize = 12.sp)
                     } else {
                         Button(onClick = vm::signIn, enabled = !login.busy) { Text("Sign in with GitHub") }
                     }

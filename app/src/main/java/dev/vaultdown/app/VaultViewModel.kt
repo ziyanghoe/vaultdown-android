@@ -142,6 +142,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private var loginJob: Job? = null
     private var loginGeneration = 0L
     private var pendingSession: GitHubSession? = null
+    private var pendingDeviceAuthorization: GitHubDeviceAuthorization? = null
     private var repoPage = 0
     private var branchPage = 0
     private fun loginTask(block: suspend () -> Unit) {
@@ -163,13 +164,35 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         loginTask {
             val saved = withContext(Dispatchers.IO) { app.settings.session() }
             if (saved != null) loadAccount(saved)
+            else withContext(Dispatchers.IO) { app.settings.pendingDeviceAuthorization() }?.let { resumeDeviceAuthorization(it) }
         }
     }
     fun signIn() {
         if (state.value.connecting) return
         pendingSession = null
+        pendingDeviceAuthorization = null
         loginState.value = LoginUi()
-        loginTask { loadAccount(GitHubLogin.authorize { code -> loginState.value = loginState.value.copy(code = code) }) }
+        loginTask {
+            withContext(Dispatchers.IO) { app.settings.clearDeviceAuthorization() }
+            val auth = withContext(Dispatchers.IO) { GitHubLogin.beginDeviceAuthorization().also(app.settings::saveDeviceAuthorization) }
+            resumeDeviceAuthorization(auth)
+        }
+    }
+    private suspend fun resumeDeviceAuthorization(auth: GitHubDeviceAuthorization) {
+        pendingDeviceAuthorization = auth
+        loginState.value = LoginUi(code = auth.userCode, busy = true)
+        try {
+            val session = GitHubLogin.finishDeviceAuthorization(auth)
+            withContext(Dispatchers.IO) { app.settings.clearDeviceAuthorization() }
+            pendingDeviceAuthorization = null
+            loadAccount(session)
+        } catch (e: Exception) {
+            if (e is IllegalStateException && (e.message?.contains("expired") == true || e.message?.contains("cancelled") == true)) {
+                withContext(Dispatchers.IO) { app.settings.clearDeviceAuthorization() }
+                pendingDeviceAuthorization = null
+            }
+            throw e
+        }
     }
     private suspend fun loadAccount(session: GitHubSession) {
         val account = withContext(Dispatchers.IO) { GitHubLogin.identity(session.access) }
@@ -217,6 +240,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         loginJob?.cancel()
         loginJob = null
         pendingSession = null
+        pendingDeviceAuthorization = null
         loginState.value = LoginUi()
     }
     fun disconnect(done: () -> Unit) {

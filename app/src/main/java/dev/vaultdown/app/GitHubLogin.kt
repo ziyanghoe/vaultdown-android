@@ -26,6 +26,14 @@ data class GitHubRepo(val owner: String, val name: String, val branch: String, v
     val fullName get() = "$owner/$name"
 }
 data class GitHubPage<T>(val items: List<T>, val more: Boolean)
+data class GitHubDeviceAuthorization(val deviceCode: String, val userCode: String, val expiresAt: Long, val interval: Long) {
+    fun json() = JSONObject().put("deviceCode", deviceCode).put("userCode", userCode)
+        .put("expiresAt", expiresAt).put("interval", interval)
+    companion object {
+        fun fromJson(j: JSONObject) = GitHubDeviceAuthorization(j.getString("deviceCode"), j.getString("userCode"),
+            j.getLong("expiresAt"), j.getLong("interval"))
+    }
+}
 
 object GitHubLogin {
     const val VERIFY_URL = "https://github.com/login/device"
@@ -33,10 +41,18 @@ object GitHubLogin {
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(35, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
 
+    /** OAuth device endpoints use JSON error bodies for expected pending/slow-down states. */
     private fun exchange(path: String, fields: Map<String, String>): JSONObject {
         val body = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
-        return JSONObject(execute(Request.Builder().url("https://github.com/$path")
-            .header("Accept", "application/json").post(body).build()).first)
+        return client.newCall(Request.Builder().url("https://github.com/$path")
+            .header("Accept", "application/json").post(body).build()).execute().use { response ->
+            val source = response.body?.source() ?: throw GitHubFailure("GitHub returned an empty sign-in response.")
+            if (source.request(64 * 1024L + 1)) throw GitHubFailure("GitHub sign-in response is too large.")
+            val text = source.readUtf8()
+            try { JSONObject(text) } catch (_: Exception) {
+                throw GitHubFailure("GitHub sign-in returned HTTP ${response.code}. Please try again.")
+            }
+        }
     }
     private fun execute(request: Request): Pair<String, Boolean> = client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw GitHubFailure(when(response.code) {
@@ -73,19 +89,25 @@ object GitHubLogin {
         if (j.has("error")) throw GitHubFailure("Your GitHub session expired. Sign in again.")
         return session(j)
     }
-    suspend fun authorize(showCode: (String) -> Unit): GitHubSession {
+    fun beginDeviceAuthorization(): GitHubDeviceAuthorization {
         require(BuildConfig.GITHUB_CLIENT_ID.isNotBlank()) { "GitHub sign-in is not configured in this build." }
-        val j = withContext(Dispatchers.IO) { exchange("login/device/code", mapOf("client_id" to BuildConfig.GITHUB_CLIENT_ID, "scope" to "repo")) }
+        val j = exchange("login/device/code", mapOf("client_id" to BuildConfig.GITHUB_CLIENT_ID, "scope" to "repo"))
         if (j.has("error")) throw GitHubFailure(if (j.optString("error") == "device_flow_disabled")
-            "Device authorization must be enabled for the Vaultdown OAuth app." else "GitHub sign-in could not start. Check the OAuth app configuration.")
+            "Enable Device flow in the Vaultdown OAuth app, then try again." else "GitHub sign-in could not start. Check the OAuth app configuration.")
         check(j.getString("verification_uri") == VERIFY_URL) { "GitHub returned an unexpected sign-in address." }
-        val poll = DevicePoll(SystemClock.elapsedRealtime(), j.getLong("expires_in"), j.optLong("interval", 5))
-        showCode(j.getString("user_code"))
+        val seconds = j.getLong("expires_in")
+        require(seconds in 1..900) { "GitHub returned an invalid sign-in lifetime." }
+        return GitHubDeviceAuthorization(j.getString("device_code"), j.getString("user_code"),
+            System.currentTimeMillis() + seconds * 1000, j.optLong("interval", 5).coerceIn(5, 60))
+    }
+    suspend fun finishDeviceAuthorization(auth: GitHubDeviceAuthorization): GitHubSession {
+        val remaining = (auth.expiresAt - System.currentTimeMillis()) / 1000
+        val poll = DevicePoll(SystemClock.elapsedRealtime(), remaining, auth.interval)
         while (true) {
             delay(poll.delayMillis())
             poll.checkActive(SystemClock.elapsedRealtime())
             val result = withContext(Dispatchers.IO) { exchange("login/oauth/access_token", mapOf(
-                "client_id" to BuildConfig.GITHUB_CLIENT_ID, "device_code" to j.getString("device_code"),
+                "client_id" to BuildConfig.GITHUB_CLIENT_ID, "device_code" to auth.deviceCode,
                 "grant_type" to "urn:ietf:params:oauth:grant-type:device_code")) }
             kotlin.coroutines.coroutineContext.ensureActive()
             poll.checkActive(SystemClock.elapsedRealtime())

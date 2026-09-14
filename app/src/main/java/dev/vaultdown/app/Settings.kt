@@ -64,8 +64,25 @@ class Settings(context: Context) {
             "Could not save connection settings."
         }
     }
+    @Synchronized fun pendingDeviceAuthorization(): GitHubDeviceAuthorization? {
+        val payload = prefs.getString("oauth_device", null) ?: return null
+        val auth = try { GitHubDeviceAuthorization.fromJson(JSONObject(decrypt(payload))) }
+        catch (_: Exception) { clearDeviceAuthorization(); return null }
+        return auth.takeIf { it.expiresAt > System.currentTimeMillis() } ?: run { clearDeviceAuthorization(); null }
+    }
+    @Synchronized fun saveDeviceAuthorization(auth: GitHubDeviceAuthorization) {
+        check(prefs.edit().putString("oauth_device", encrypt(auth.json().toString())).commit())
+    }
+    @Synchronized fun clearDeviceAuthorization() { prefs.edit().remove("oauth_device").commit() }
+    private fun decrypt(payload: String): String {
+        val parts = payload.split(":")
+        require(parts.size == 2)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)))
+        return String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), Charsets.UTF_8)
+    }
     @Synchronized fun disconnect() {
-        check(prefs.edit().remove("token").remove("oauth_session").remove("config").commit())
+        check(prefs.edit().remove("token").remove("oauth_session").remove("oauth_device").remove("config").commit())
     }
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
