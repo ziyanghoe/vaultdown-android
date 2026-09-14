@@ -2,7 +2,7 @@
 
 A native Android Markdown notebook with an Obsidian-inspired file tree and automatic GitHub sync. Kotlin, Jetpack Compose, SQLite, WorkManager, and a separately testable Java sync core.
 
-**Delivery status:** 26 executable core tests pass. This source is being published to the private `ziyanghoe/vaultdown-android` repository. Android compilation and device testing are pending; the included GitHub Actions workflow is the next build gate. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
+**Delivery status:** Published to the private `ziyanghoe/vaultdown-android` repository. Android compilation, lint, and 26 core tests passed. [Download the debug APK ZIP](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34811961726/artifacts/10335205862), extract it, and install `app-debug.apk`. This artifact expires on 2026-09-28; later builds are under Actions. Device testing is still pending. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
 
 ## What it does
 

@@ -9,16 +9,22 @@ Prepared 2026-09-14.
 - Reviewed credential handling, complete-tree preconditions, revision checks, acknowledgement behavior, remote deletions, and queued keystroke handling.
 - XML resources and manifest parsed for well-formedness; shell scripts syntax checked.
 
+## Verified on GitHub Actions
+
+- Android/Kotlin compilation, dependency resolution, debug APK assembly, and Android lint passed.
+- All 26 executable core tests passed.
+- The `vaultdown-debug` artifact was uploaded successfully.
+- [Build and artifact](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34811961726), app commit `1ca6a1ff186191537243467587b044e016bbb2af`.
+
 ## Not verified
 
-- Android/Kotlin compilation, dependency resolution, Android lint, rendering, and installation.
+- Rendering and installation on an emulator/device.
 - Live GitHub pull/push using a user token.
 - SQLite, Android Keystore, WorkManager, export picker, and lifecycle behavior on an emulator/device.
-- GitHub Actions execution.
 
 The private `ziyanghoe/vaultdown-android` repository and write access were verified before publication.
 
-The local environment supplies Java 17 but no Android SDK or Gradle installation. Attempts to reach Android/Gradle dependency endpoints were blocked or timed out. No APK has been produced. The included workflow is the next compilation and lint gate once the project is on GitHub.
+The local environment supplies Java 17 but no Android SDK or Gradle installation. Attempts to reach Android/Gradle dependency endpoints were blocked or timed out. The APK was built and checked on GitHub Actions instead.
 
 ## Device validation before regular use
 
