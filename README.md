@@ -2,7 +2,7 @@
 
 A native Android Markdown notebook with an Obsidian-inspired file tree and automatic GitHub sync. Kotlin, Jetpack Compose, SQLite, WorkManager, and a separately testable Java sync core.
 
-**Delivery status:** Version 0.2.2 includes GitHub OAuth device sign-in and repository/branch selection. The Vaultdown OAuth Client ID is configured; device flow must be enabled in the OAuth app settings. 29 core tests, Android compilation, and lint passed in [GitHub Actions](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34827990777). Version 0.2.2 fixes device-flow pending responses, adds copy-code, and preserves an in-progress authorization for up to 15 minutes. Its build is pending. Live OAuth authorization requires device testing. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
+**Delivery status:** Version 0.2.2 includes GitHub OAuth device sign-in and repository/branch selection. The Vaultdown OAuth Client ID is configured; device flow must be enabled in the OAuth app settings. 29 core tests, Android compilation, and lint passed in [GitHub Actions](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34827990777). Version 0.2.3 removes the app’s 1 MiB Markdown limit and uses Git’s blob/tree/commit API for writes. Its build is pending. Live OAuth authorization requires device testing. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
 
 ## What it does
 
@@ -110,7 +110,7 @@ No force-push or unconditional overwrite is used. Keeping your version explicitl
 - API requests go only to `https://api.github.com`; OAuth exchanges go only to fixed `https://github.com/login/` endpoints. Redirects are disabled. Credentials, request bodies, and server error bodies are not logged.
 - Local notes are in app-private SQLite storage, **not a separately encrypted database**. Android backup/device-transfer exclusions are configured for both notes and credentials.
 - Preview is rendered by native TextView/Markwon, without WebView, JavaScript, remote image fetching, or URL dispatch.
-- Supported content: UTF-8 `.md` and `.markdown` files up to 1 MiB each, at most 2,000 supported notes per repository. Large recursive API responses are bounded; very large repositories fail explicitly.
+- Supported content: UTF-8 `.md` and `.markdown` files up to GitHub’s 100 MiB blob limit each, at most 2,000 supported notes per repository. Large recursive API responses are bounded; very large repositories fail explicitly.
 - Hidden directories/files, symlinks, submodules, binary attachments, and Obsidian metadata are excluded. This version has no graph, plugins, backlink index, wiki-link navigation, image rendering, local delete/rename commands, multi-repository switcher, GitHub Enterprise support, or merge-by-line editor. Folders are derived from note paths.
 - Use the initialized branch you intend to edit. Automatic sync creates one commit per changed note; repository-wide updates are not a single atomic commit.
 - The status distinguishes local saving from remote syncing. Wait until **Saved locally** before closing immediately after a keystroke. Background scheduling depends on connectivity, battery settings, and Android; a force-stopped app must be reopened.

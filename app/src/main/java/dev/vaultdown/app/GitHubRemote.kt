@@ -24,8 +24,9 @@ class GitHubRemote(private val config: RepoConfig, private val token: String) : 
         }
     }
     companion object {
-        const val MAX_NOTE_BYTES = 1_048_576
-        private const val MAX_RESPONSE_BYTES = 16L * 1024 * 1024
+        // GitHub's Git database accepts blobs up to 100 MiB. This is GitHub's service limit, not an app limit.
+        const val MAX_NOTE_BYTES = 100 * 1024 * 1024
+        private const val MAX_RESPONSE_BYTES = 140L * 1024 * 1024
         private val client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(45, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
@@ -42,7 +43,7 @@ class GitHubRemote(private val config: RepoConfig, private val token: String) : 
             val entry = entries.getJSONObject(i)
             val path = entry.getString("path")
             if (entry.getString("type") == "blob" && entry.getString("mode") in listOf("100644", "100755") && Paths.supported(path)) {
-                if (entry.optLong("size", 0) > MAX_NOTE_BYTES) throw GitHubFailure("$path is larger than 1 MiB. Move it outside this notes repository to sync.")
+                if (entry.optLong("size", 0) > MAX_NOTE_BYTES) throw GitHubFailure("$path exceeds GitHub's 100 MiB blob limit and cannot be synced.")
                 files[path] = entry.getString("sha")
             }
         }
@@ -53,7 +54,7 @@ class GitHubRemote(private val config: RepoConfig, private val token: String) : 
         // Read immutable blobs, never a moving branch or arbitrary download_url.
         val json = request(listOf("git", "blobs", sha))
         if (json.optString("encoding") != "base64" || json.getLong("size") > MAX_NOTE_BYTES)
-            throw GitHubFailure("$path must be a UTF-8 Markdown file under 1 MiB.")
+            throw GitHubFailure("$path must be a UTF-8 Markdown file within GitHub's 100 MiB blob limit.")
         val bytes = Base64.decode(json.getString("content"), Base64.DEFAULT)
         val text = try {
             Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
@@ -65,13 +66,22 @@ class GitHubRemote(private val config: RepoConfig, private val token: String) : 
     override fun write(path: String, text: String, expectedSha: String?): String {
         Paths.validate(path)
         val bytes = text.toByteArray(Charsets.UTF_8)
-        if (bytes.size > MAX_NOTE_BYTES) throw GitHubFailure("$path exceeds 1 MiB. Your changes remain saved on this device.")
-        val payload = JSONObject().put("message", "Vaultdown: update $path").put("branch", config.branch)
-            .put("content", Base64.encodeToString(bytes, Base64.NO_WRAP))
-        expectedSha?.let { payload.put("sha", it) }
-        return request(listOf("contents") + path.split('/'), payload).getJSONObject("content").getString("sha")
+        if (bytes.size > MAX_NOTE_BYTES) throw GitHubFailure("$path exceeds GitHub's 100 MiB blob limit. Your changes remain saved on this device.")
+        // Git Data API avoids the 1 MiB Contents API restriction. The final ref update is non-forced:
+        // a remotely advanced branch rejects this commit and SyncEngine rechecks the remote version.
+        val branch = request(listOf("branches", config.branch))
+        val parent = branch.getJSONObject("commit").getString("sha")
+        val baseTree = branch.getJSONObject("commit").getJSONObject("commit").getJSONObject("tree").getString("sha")
+        val blob = request(listOf("git", "blobs"), JSONObject()
+            .put("content", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("encoding", "base64"), method = "POST").getString("sha")
+        val tree = request(listOf("git", "trees"), JSONObject().put("base_tree", baseTree).put("tree", org.json.JSONArray()
+            .put(JSONObject().put("path", path).put("mode", "100644").put("type", "blob").put("sha", blob))), method = "POST").getString("sha")
+        val commit = request(listOf("git", "commits"), JSONObject().put("message", "Vaultdown: update $path")
+            .put("tree", tree).put("parents", org.json.JSONArray().put(parent)), method = "POST").getString("sha")
+        request(listOf("git", "refs", "heads", config.branch), JSONObject().put("sha", commit).put("force", false), method = "PATCH")
+        return blob
     }
-    private fun request(segments: List<String>, payload: JSONObject? = null, recursive: Boolean = false): JSONObject {
+    private fun request(segments: List<String>, payload: JSONObject? = null, recursive: Boolean = false, method: String = "GET"): JSONObject {
         val url = "https://api.github.com".toHttpUrl().newBuilder()
             .addPathSegment("repos").addPathSegment(config.owner).addPathSegment(config.repo)
         segments.forEach { url.addPathSegment(it) }
@@ -81,7 +91,8 @@ class GitHubRemote(private val config: RepoConfig, private val token: String) : 
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "Vaultdown-Android")
-        payload?.let { builder.put(it.toString().toRequestBody("application/json; charset=utf-8".toMediaType())) }
+        if (payload == null) require(method == "GET") { "GitHub request body is missing." }
+        else builder.method(method, payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
         client.newCall(builder.build()).execute().use { response ->
             if (!response.isSuccessful) {
                 val limited = response.header("X-RateLimit-Remaining") == "0" || response.header("Retry-After") != null
