@@ -270,34 +270,11 @@ import kotlinx.coroutines.withContext
             view.movementMethod = null
             view.tag = markdown
         }
-        view.setOnTouchListener { _, event ->
-            if (event.action != MotionEvent.ACTION_UP) {
-                false
-            } else {
-                val layout = view.layout
-                if (layout == null || event.x > view.totalPaddingLeft + view.resources.displayMetrics.density * 48f) {
-                    false
-                } else {
-                    val line = layout.getLineForVertical((event.y - view.totalPaddingTop + view.scrollY).toInt())
-                    val rendered = view.text as? Spanned
-                    val task = rendered?.getSpans(layout.getLineStart(line), layout.getLineEnd(line), TaskListSpan::class.java)
-                        ?.firstOrNull()
-                    if (rendered == null || task == null) {
-                        false
-                    } else {
-                        val index = rendered.getSpans(0, rendered.length, TaskListSpan::class.java)
-                            .sortedBy { rendered.getSpanStart(it) }.indexOf(task)
-                        val changed = toggleMarkdownTask(markdown, index)
-                        if (changed != null) onToggle(changed)
-                        changed != null
-                    }
-                }
-            }
-        }
+        installTaskTouchHandler(view, markdown, onToggle)
     })
 }
 
-private fun toggleMarkdownTask(markdown: String, taskIndex: Int): String? {
+internal fun toggleMarkdownTask(markdown: String, taskIndex: Int): String? {
     if (taskIndex < 0) return null
     val task = Regex("(?m)^([ \\t]*(?:[-+*]|\\d+[.)])[ \\t]+\\[)([ xX])(\\])")
     var index = 0
