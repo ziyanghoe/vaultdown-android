@@ -287,7 +287,7 @@ import kotlinx.coroutines.withContext
 
 private fun toggleMarkdownTask(markdown: String, taskIndex: Int): String? {
     if (taskIndex < 0) return null
-    val task = Regex("""(?m)^(\\s*(?:[-+*]|\\d+[.)])\\s+\\[)([ xX])(\\])""")
+    val task = Regex("""(?m)^([ \\t]*(?:[-+*]|\\d+[.)])[ \\t]+\\[)([ xX])(\\])""")
     var index = 0
     val match = task.findAll(markdown).firstOrNull { index++ == taskIndex } ?: return null
     val checked = match.groupValues[2].equals("x", ignoreCase = true)

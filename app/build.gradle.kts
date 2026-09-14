@@ -15,8 +15,8 @@ android {
         applicationId = "dev.vaultdown.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.2.5"
+        versionCode = 8
+        versionName = "0.2.6"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$githubClientId\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
