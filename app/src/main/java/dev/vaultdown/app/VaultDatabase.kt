@@ -3,6 +3,7 @@ package dev.vaultdown.app
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
+import java.io.ByteArrayOutputStream
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import dev.vaultdown.core.Note
@@ -22,12 +23,12 @@ class VaultDatabase(context: Context) : SQLiteOpenHelper(context, "vaults.db", n
 
 class LocalVault(private val helper: VaultDatabase, private val id: String) : SyncEngine.Store {
     override fun all(): List<Note> = synchronized(helper) {
-        helper.readableDatabase.query("notes", null, "vault=?", arrayOf(id), null, null, "path COLLATE NOCASE")
+        helper.readableDatabase.query("notes", arrayOf("path", "baseSha", "conflict", "incomingSha", "revision"), "vault=?", arrayOf(id), null, null, "path COLLATE NOCASE")
             .use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.note()) } }
     }
     fun get(path: String): Note? = synchronized(helper) { getInside(path) }
     private fun getInside(path: String): Note? = helper.readableDatabase
-        .query("notes", null, "vault=? AND path=?", arrayOf(id, path), null, null, null)
+        .query("notes", arrayOf("path", "baseSha", "conflict", "incomingSha", "revision"), "vault=? AND path=?", arrayOf(id, path), null, null, null)
         .use { if (it.moveToFirst()) it.note() else null }
 
     override fun apply(path: String, expected: Note?, replacement: Note?): Boolean = synchronized(helper) {
@@ -94,8 +95,37 @@ class LocalVault(private val helper: VaultDatabase, private val id: String) : Sy
     }
     private fun Cursor.note(): Note {
         fun str(key: String): String? = getColumnIndexOrThrow(key).let { if (isNull(it)) null else getString(it) }
-        return Note(str("path")!!, str("text")!!, str("baseSha"), str("baseText"),
-            getInt(getColumnIndexOrThrow("conflict")) != 0, str("incomingSha"), str("incomingText"),
+        val path = str("path")!!
+        return Note(path, readText(path, "text")!!, str("baseSha"), readText(path, "baseText"),
+            getInt(getColumnIndexOrThrow("conflict")) != 0, str("incomingSha"), readText(path, "incomingText"),
             getLong(getColumnIndexOrThrow("revision")))
     }
+    // Keep every cursor row small, including rows saved by older versions.
+    // Slice bytes (not characters), then decode once so Unicode and NUL survive.
+    private fun readText(path: String, column: String): String? {
+        require(column in setOf("text", "baseText", "incomingText"))
+        val db = helper.readableDatabase
+        val size = db.rawQuery("SELECT length(CAST($column AS BLOB)) FROM notes WHERE vault=? AND path=?",
+            arrayOf(id, path)).use {
+            check(it.moveToFirst()) { "Note disappeared during local read." }
+            if (it.isNull(0)) return null
+            it.getInt(0)
+        }
+        val bytes = ByteArrayOutputStream()
+        var offset = 0
+        while (offset < size) {
+            val chunk = db.rawQuery(
+                "SELECT substr(CAST($column AS BLOB), ?, ?) FROM notes WHERE vault=? AND path=?",
+                arrayOf((offset + 1).toString(), minOf(64 * 1024, size - offset).toString(), id, path)
+            ).use {
+                check(it.moveToFirst()) { "Note disappeared during local read." }
+                it.getBlob(0)
+            }
+            check(chunk.isNotEmpty()) { "Could not read the complete local note." }
+            bytes.write(chunk)
+            offset += chunk.size
+        }
+        return bytes.toString("UTF-8")
+    }
+
 }

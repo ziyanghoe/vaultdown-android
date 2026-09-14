@@ -131,7 +131,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 state.value = state.value.copy(config = config, selected = null, text = "")
-                refresh()
+                try { refresh() }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) {
+                    fail("Connected to GitHub, but cached notes could not be loaded. Your saved notes have not been deleted.")
+                }
                 app.schedulePeriodic()
                 app.enqueueSync()
                 closeLogin()
@@ -139,7 +143,9 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 fail(when (e) {
                     is GitHubFailure, is IllegalArgumentException, is IllegalStateException -> e.message ?: "Connection failed."
-                    else -> "Cannot reach GitHub. Check your connection and try again."
+                    is java.io.IOException -> "Cannot reach GitHub. Check your connection and try again."
+                    is android.database.SQLException -> "Could not read local notes. Your GitHub credentials and cached notes have been retained."
+                    else -> "Could not finish connecting. Your cached notes have been retained."
                 })
             } finally { state.value = state.value.copy(connecting = false) }
         }

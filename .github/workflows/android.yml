@@ -30,7 +30,7 @@ jobs:
       - name: Compile, test, and lint
         env:
           GITHUB_CLIENT_ID: ${{ vars.GITHUB_CLIENT_ID }}
-        run: gradle --no-daemon :core:check :app:assembleDebug :app:lintDebug
+        run: gradle --no-daemon :core:check :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
       - uses: actions/upload-artifact@v4
         with:
           name: vaultdown-debug
