@@ -1,0 +1,28 @@
+PASS Git blob SHA uses UTF-8 byte length
+PASS safe Unicode, spaces, nested paths
+PASS unsafe and hidden paths rejected
+PASS new and untouched decisions
+PASS initial pull preserves directories and text
+PASS local edit uploads and becomes clean
+PASS remote-only edit downloads
+PASS concurrent edits retain both versions
+PASS clean remote deletion removes cache
+PASS remote deletion with local edits becomes conflict
+PASS simultaneous new files conflict
+PASS same content after interrupted upload is acknowledged without a new commit
+PASS incomplete tree cannot delete local notes
+PASS failed upload keeps dirty local text
+PASS typing during upload survives acknowledgment
+PASS typing during download cannot be overwritten
+PASS remote update between tree and PUT triggers SHA protection
+PASS keeping local explicitly rebases then uploads
+PASS keeping local after remote deletion recreates the file
+PASS unresolved conflict stays blocked and refreshes newer remote version
+PASS queued keystroke against an old screen cannot silently rebase over a download
+PASS queued keystroke after remote deletion retains the draft
+PASS queued typing after acknowledgment of the displayed text stays editable
+PASS cancellation leaves queued edits intact
+PASS tree orders folders first and preserves nesting
+PASS collapsed folders hide children; search reveals them
+
+26 tests passed.
