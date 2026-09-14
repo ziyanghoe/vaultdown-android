@@ -1,6 +1,8 @@
 package dev.vaultdown.app
 
-import android.widget.TextView\nimport android.view.MotionEvent\nimport android.text.Spanned
+import android.widget.TextView
+import android.view.MotionEvent
+import android.text.Spanned
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -45,7 +47,8 @@ import dev.vaultdown.core.Note
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
-import io.noties.markwon.ext.tasklist.TaskListPlugin\nimport io.noties.markwon.ext.tasklist.TaskListSpan
+import io.noties.markwon.ext.tasklist.TaskListPlugin
+import io.noties.markwon.ext.tasklist.TaskListSpan
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
