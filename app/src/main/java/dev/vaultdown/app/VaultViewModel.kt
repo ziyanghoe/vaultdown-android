@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.vaultdown.core.Note
 import dev.vaultdown.core.Paths
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,7 +103,13 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun sync() { app.enqueueSync() }
     fun fail(message: String) { state.value = state.value.copy(error = message) }
     fun clearError() { state.value = state.value.copy(error = null) }
-    fun connect(config: RepoConfig, enteredToken: String, done: () -> Unit) {
+    fun connectSelected(done: () -> Unit) {
+        val repo = loginState.value.selected ?: return
+        val branch = loginState.value.branch ?: return
+        val session = pendingSession ?: return
+        connect(RepoConfig(repo.owner, repo.name, branch), session, done)
+    }
+    private fun connect(config: RepoConfig, session: GitHubSession, done: () -> Unit) {
         if (state.value.saving || state.value.connecting) return
         viewModelScope.launch {
             state.value = state.value.copy(connecting = true, error = null)
@@ -109,17 +117,17 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) {
                     app.syncMutex.withLock {
                         config.validate()
-                        val token = enteredToken.trim().ifEmpty { app.settings.token().orEmpty() }
-                        require(token.isNotEmpty()) { "Enter a GitHub token." }
+                        val token = session.access
                         // Validate read access and branch before changing the active workspace.
                         GitHubRemote(config, token).list()
-                        app.settings.save(config, token)
+                        app.settings.save(config, session)
                     }
                 }
                 state.value = state.value.copy(config = config, selected = null, text = "")
                 refresh()
                 app.schedulePeriodic()
                 app.enqueueSync()
+                closeLogin()
                 done()
             } catch (e: Exception) {
                 fail(when (e) {
@@ -129,12 +137,95 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             } finally { state.value = state.value.copy(connecting = false) }
         }
     }
+    private val loginState = MutableStateFlow(LoginUi())
+    val login = loginState.asStateFlow()
+    private var loginJob: Job? = null
+    private var loginGeneration = 0L
+    private var pendingSession: GitHubSession? = null
+    private var repoPage = 0
+    private var branchPage = 0
+    private fun loginTask(block: suspend () -> Unit) {
+        val generation = ++loginGeneration
+        loginJob?.cancel()
+        loginJob = viewModelScope.launch {
+            loginState.value = loginState.value.copy(busy = true, error = null)
+            try { block() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                loginState.value = loginState.value.copy(code = null, error =
+                    if (e is GitHubFailure || e is IllegalStateException || e is IllegalArgumentException)
+                        e.message ?: "GitHub sign-in failed." else "Cannot reach GitHub. Check your connection and retry.")
+            } finally { if (generation == loginGeneration) loginState.value = loginState.value.copy(busy = false) }
+        }
+    }
+    fun openLogin() {
+        if (loginJob?.isActive == true || loginState.value.account != null) return
+        loginTask {
+            val saved = withContext(Dispatchers.IO) { app.settings.session() }
+            if (saved != null) loadAccount(saved)
+        }
+    }
+    fun signIn() {
+        if (state.value.connecting) return
+        pendingSession = null
+        loginState.value = LoginUi()
+        loginTask { loadAccount(GitHubLogin.authorize { code -> loginState.value = loginState.value.copy(code = code) }) }
+    }
+    private suspend fun loadAccount(session: GitHubSession) {
+        val account = withContext(Dispatchers.IO) { GitHubLogin.identity(session.access) }
+        pendingSession = session
+        repoPage = 0
+        loginState.value = LoginUi(account = account, busy = true)
+        fetchRepos()
+    }
+    private suspend fun fetchRepos() {
+        val session = pendingSession ?: return
+        val next = repoPage + 1
+        val page = withContext(Dispatchers.IO) { GitHubLogin.repositories(session.access, next) }
+        repoPage = next
+        loginState.value = loginState.value.copy(repos = (loginState.value.repos + page.items).distinctBy { it.fullName }, moreRepos = page.more)
+    }
+    fun moreRepositories() { if (!loginState.value.busy) loginTask { fetchRepos() } }
+    fun selectRepo(repo: GitHubRepo) {
+        if (loginState.value.busy || state.value.connecting) return
+        branchPage = 0
+        loginState.value = loginState.value.copy(selected = repo, branches = emptyList(), branch = null, moreBranches = false)
+        loginTask { fetchBranches(repo) }
+    }
+    private suspend fun fetchBranches(repo: GitHubRepo) {
+        val session = pendingSession ?: return
+        val next = branchPage + 1
+        val page = withContext(Dispatchers.IO) { GitHubLogin.branches(session.access, repo, next) }
+        branchPage = next
+        val branches = (loginState.value.branches + page.items).distinct()
+        loginState.value = loginState.value.copy(branches = branches, moreBranches = page.more,
+            branch = loginState.value.branch ?: branches.find { it == repo.branch } ?: branches.firstOrNull())
+    }
+    fun moreBranches() {
+        val repo = loginState.value.selected ?: return
+        if (!loginState.value.busy) loginTask { fetchBranches(repo) }
+    }
+    fun chooseBranch(branch: String) {
+        if (!state.value.connecting && branch in loginState.value.branches) loginState.value = loginState.value.copy(branch = branch)
+    }
+    fun backToRepos() {
+        if (loginState.value.busy || state.value.connecting) return
+        loginState.value = loginState.value.copy(selected = null, branch = null, branches = emptyList(), error = null)
+    }
+    fun closeLogin() {
+        loginGeneration++
+        loginJob?.cancel()
+        loginJob = null
+        pendingSession = null
+        loginState.value = LoginUi()
+    }
     fun disconnect(done: () -> Unit) {
         if (state.value.saving || state.value.connecting) return
         viewModelScope.launch {
             state.value = state.value.copy(connecting = true)
             try {
                 withContext(Dispatchers.IO) { app.syncMutex.withLock { app.settings.disconnect() } }
+                closeLogin()
                 app.cancelSync()
                 state.value = state.value.copy(config = null, selected = null, text = "")
                 app.changed("Offline workspace", false)

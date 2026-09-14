@@ -1,6 +1,9 @@
 package dev.vaultdown.app
 
 import android.widget.TextView
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
@@ -47,7 +50,7 @@ import kotlinx.coroutines.withContext
 
 @Composable fun VaultdownScreen(vm: VaultViewModel = viewModel()) {
     val ui by vm.ui.collectAsStateWithLifecycle()
-    var settings by remember { mutableStateOf(false) }
+    var settings by rememberSaveable { mutableStateOf(false) }
     var newNote by remember { mutableStateOf(false) }
     var conflict by remember { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -278,43 +281,79 @@ import kotlinx.coroutines.withContext
 }
 
 @Composable private fun ConnectionDialog(ui: VaultUi, vm: VaultViewModel, onDismiss: () -> Unit) {
-    var owner by rememberSaveable { mutableStateOf(ui.config?.owner.orEmpty()) }
-    var repo by rememberSaveable { mutableStateOf(ui.config?.repo.orEmpty()) }
-    var branch by rememberSaveable { mutableStateOf(ui.config?.branch ?: "main") }
-    // Deliberately not saveable: credentials never enter saved-instance-state bundles.
-    var token by remember { mutableStateOf("") }
-    val activity = LocalContext.current as? MainActivity
+    val login by vm.login.collectAsStateWithLifecycle()
+    var query by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    val activity = context as? MainActivity
+    val dismiss = { vm.closeLogin(); onDismiss() }
+    LaunchedEffect(Unit) { vm.openLogin() }
     DisposableEffect(Unit) {
         activity?.protectCredentials(true)
         onDispose { activity?.protectCredentials(false) }
     }
-    AlertDialog(onDismissRequest = { if (!ui.connecting) onDismiss() },
+    AlertDialog(onDismissRequest = { if (!ui.connecting) dismiss() },
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
-        title = { Text("Connect your notes") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Use a GitHub repository that already has a commit. Its Markdown files will sync in both directions.",
-                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(owner, { owner = it }, label = { Text("Owner / organization") }, singleLine = true, enabled = !ui.connecting)
-            OutlinedTextField(repo, { repo = it }, label = { Text("Repository name") }, singleLine = true, enabled = !ui.connecting)
-            OutlinedTextField(branch, { branch = it }, label = { Text("Branch") }, singleLine = true, enabled = !ui.connecting)
-            OutlinedTextField(token, { token = it }, label = { Text("GitHub access token") }, singleLine = true,
-                enabled = !ui.connecting, visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-            Text(if (ui.config != null) "Leave the token blank to keep the saved token."
-                else "Create a fine-grained token for this repository with Contents: Read and write.",
-                fontSize = 11.sp, color = Mint)
-            Text("Your token is encrypted using Android Keystore. Background sync runs about every 15 minutes, subject to Android battery scheduling.",
-                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Each repository and branch has a separate local workspace. Disconnecting keeps cached notes; reconnect to access them.",
-                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (ui.config != null) TextButton(onClick = { vm.disconnect(onDismiss) }, enabled = !ui.connecting && !ui.saving) {
-                Text("Disconnect GitHub", color = MaterialTheme.colorScheme.error)
+        title = { Text(if (login.selected != null) "Choose a branch" else "Connect GitHub") },
+        text = {
+            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (login.account == null) {
+                    Text("Sign in to GitHub, then choose a repository for your Markdown notes.")
+                    Text("GitHub will request repository access, including private repositories. Vaultdown syncs only the repository you select.",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (BuildConfig.GITHUB_CLIENT_ID.isBlank()) {
+                        Text("GitHub sign-in is not available in this build yet. Please install a configured build.", color = MaterialTheme.colorScheme.error)
+                    } else if (login.code != null) {
+                        Text("Enter this code on GitHub:")
+                        SelectionContainer { Text(login.code.orEmpty(), fontSize = 25.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) }
+                        Button(onClick = {
+                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubLogin.VERIFY_URL))) }
+                            catch (_: Exception) { vm.fail("Open github.com/login/device in your browser and enter the displayed code.") }
+                        }) { Text("Open GitHub") }
+                        Text("After authorizing Vaultdown, return here. Waiting for approval…", fontSize = 12.sp)
+                    } else {
+                        Button(onClick = vm::signIn, enabled = !login.busy) { Text("Sign in with GitHub") }
+                    }
+                } else {
+                    Text("Signed in as ${login.account}", color = Mint, fontSize = 13.sp)
+                    if (login.selected == null) {
+                        OutlinedTextField(query, { query = it }, label = { Text("Find a repository") }, singleLine = true)
+                        LazyColumn(Modifier.heightIn(max = 240.dp)) {
+                            items(login.repos.filter { it.fullName.contains(query, true) }, key = { it.fullName }) { repo ->
+                                TextButton(onClick = { vm.selectRepo(repo) }, enabled = !login.busy && !ui.connecting) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text(repo.fullName)
+                                        Text(if (repo.privateRepo) "Private" else "Public", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                        if (login.repos.isEmpty() && !login.busy) Text("No writable repositories found. Check GitHub permissions and organization approval.", fontSize = 12.sp)
+                        if (login.moreRepos || login.error != null) TextButton(onClick = vm::moreRepositories, enabled = !login.busy) { Text("Load more repositories") }
+                        Text("Only repositories you can write to are shown. Archived repositories are excluded.", fontSize = 11.sp)
+                        TextButton(onClick = vm::signIn, enabled = !login.busy && !ui.connecting && BuildConfig.GITHUB_CLIENT_ID.isNotBlank()) { Text("Sign in again / switch account") }
+                    } else {
+                        Text(login.selected!!.fullName, fontWeight = FontWeight.SemiBold)
+                        LazyColumn(Modifier.heightIn(max = 240.dp)) {
+                            items(login.branches, key = { it }) { branch ->
+                                Row(Modifier.fillMaxWidth().clickable(enabled = !ui.connecting) { vm.chooseBranch(branch) }, verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = login.branch == branch, onClick = { vm.chooseBranch(branch) }, enabled = !ui.connecting)
+                                    Text(branch, Modifier.weight(1f))
+                                }
+                            }
+                        }
+                        if (login.branches.isEmpty() && !login.busy) Text("No branches available. Initialize this repository with a README on GitHub, then try again.", fontSize = 12.sp)
+                        if (login.moreBranches || login.error != null) TextButton(onClick = vm::moreBranches, enabled = !login.busy) { Text("Load branches") }
+                        TextButton(onClick = vm::backToRepos, enabled = !login.busy && !ui.connecting) { Text("Change repository") }
+                    }
+                }
+                if (login.error != null) Text(login.error.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                if (login.busy || ui.connecting) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (ui.config != null) TextButton(onClick = { vm.disconnect(dismiss) }, enabled = !ui.connecting && !ui.saving && !login.busy) { Text("Disconnect GitHub") }
             }
-        }
-    }, confirmButton = { TextButton(onClick = { vm.connect(RepoConfig(owner.trim(), repo.trim(), branch.trim()), token, onDismiss) },
-        enabled = !ui.connecting && !ui.saving && owner.isNotBlank() && repo.isNotBlank() && branch.isNotBlank()) {
-        if (ui.connecting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Connect & sync")
-    } }, dismissButton = { TextButton(onClick = onDismiss, enabled = !ui.connecting) { Text("Cancel") } })
+        }, confirmButton = {
+            if (login.selected != null) TextButton(onClick = { vm.connectSelected(dismiss) },
+                enabled = !ui.connecting && !ui.saving && !login.busy && login.branch != null) { Text("Connect & sync") }
+        }, dismissButton = { TextButton(onClick = dismiss, enabled = !ui.connecting) { Text("Close") } })
 }
 
 @Composable private fun ConflictDialog(note: Note, saving: Boolean, onDismiss: () -> Unit, onChoose: (String) -> Unit) {

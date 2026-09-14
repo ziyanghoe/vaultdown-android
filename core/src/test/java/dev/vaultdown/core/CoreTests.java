@@ -185,6 +185,28 @@ public final class CoreTests {
             eq(2,FileTree.rows(List.of("Work/A.md"),Set.of("Work"),"a.md").size());
             eq(0,FileTree.rows(List.of("Work/A.md"),Set.of(),"missing").size());
         });
+        test("OAuth polling respects server interval and repeated slow down", () -> {
+            DevicePoll poll = new DevicePoll(1000, 900, 7);
+            eq(7000L, poll.delayMillis());
+            poll.accept("authorization_pending", 0);
+            eq(7000L, poll.delayMillis());
+            poll.accept("slow_down", 20);
+            eq(20000L, poll.delayMillis());
+            poll.accept("slow_down", 0);
+            eq(25000L, poll.delayMillis());
+        });
+        test("OAuth code expires at the monotonic deadline", () -> {
+            DevicePoll poll = new DevicePoll(1000, 10, 5);
+            poll.checkActive(10999);
+            try { poll.checkActive(11000); throw new AssertionError("expired code accepted"); }
+            catch (IllegalStateException expected) { }
+        });
+        test("OAuth denial and unknown errors stop polling", () -> {
+            for (String error : List.of("access_denied", "expired_token", "token_expired", "incorrect_device_code", "other")) {
+                try { new DevicePoll(0, 900, 5).accept(error, 0); throw new AssertionError("error ignored"); }
+                catch (IllegalStateException expected) { }
+            }
+        });
         System.out.println("\n" + passed + " tests passed.");
     }
 }

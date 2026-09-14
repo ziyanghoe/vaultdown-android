@@ -66,7 +66,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         app.syncMutex.withLock {
             val config = app.settings.config() ?: return@withLock Result.success()
             try {
-                val token = app.settings.token() ?: throw GitHubFailure("Enter a GitHub token in Settings.")
+                val token = app.settings.token() ?: throw GitHubFailure("Sign in to GitHub in Settings.")
                 app.changed("Syncing with GitHub…", true)
                 val local = app.database.vault(config.vaultId)
                 val report = SyncEngine().sync(local, GitHubRemote(config, token)) { isStopped }

@@ -2,7 +2,7 @@
 
 A native Android Markdown notebook with an Obsidian-inspired file tree and automatic GitHub sync. Kotlin, Jetpack Compose, SQLite, WorkManager, and a separately testable Java sync core.
 
-**Delivery status:** Published to the private `ziyanghoe/vaultdown-android` repository. Android compilation, lint, and 26 core tests passed. [Download the debug APK ZIP](https://github.com/ziyanghoe/vaultdown-android/actions/runs/34811961726/artifacts/10335205862), extract it, and install `app-debug.apk`. This artifact expires on 2026-09-28; later builds are under Actions. Device testing is still pending. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
+**Delivery status:** Version 0.2.0 adds GitHub OAuth device sign-in and repository/branch selection. Configure the app Client ID as described below to enable sign-in. 29 core tests pass locally; the updated Android build is pending. See [BUILD_STATUS.md](docs/BUILD_STATUS.md).
 
 ## What it does
 
@@ -60,12 +60,30 @@ The APK output is `app/build/outputs/apk/debug/app-debug.apk`. Install on an emu
 
 The repository containing this app's source and the repository containing your Markdown notes are separate choices. The app does not assume the source repository is your notes repository.
 
-1. Create or select a GitHub notes repository. Ensure the desired branch exists and contains at least one commit, such as a README. An empty initialized tree is supported; an unborn branch is not.
-2. Create a **fine-grained personal access token**, grant access only to that notes repository, and enable **Contents: Read and write**. Organizations may require token approval/SSO. Branch protection must permit direct commits from your account.
-3. In Vaultdown, open **Settings**. Enter the owner, repository name, branch (defaults to `main`), and token. Use names, not a URL.
-4. Tap **Connect & sync**. The app validates the branch and read access, stores the token encrypted, opens that repository's workspace, and queues the initial sync. Write permission is exercised when you edit a note; a denied push leaves your edit local and shows an error.
+1. Open **Settings → Sign in with GitHub**.
+2. Tap **Open GitHub**, enter the displayed one-time code, and authorize Vaultdown. Return to the app.
+3. Choose a writable repository and an existing branch. Private repositories are included, subject to organization authorization. Search filters loaded repositories; use **Load more repositories** for additional pages.
+4. Tap **Connect & sync**. The app validates the branch before changing workspaces, encrypts the session, and starts syncing.
 
-Enter the token only in the app's connection form. It is not needed in source code, `local.properties`, CI, or this conversation. Updating a connection can retain the saved token by leaving the token field blank. Disconnect removes the stored token/config and background jobs; it keeps cached notes. Reconnect the same repository and branch to access that cache.
+Repositories must contain at least one commit. Archived repositories and repositories without write access are excluded. Branch rules can still block commits; failed pushes preserve local changes.
+
+Disconnect removes local credentials/config and scheduled jobs, while retaining cached notes. It does not revoke the OAuth grant on GitHub; revoke Vaultdown under GitHub Settings → Applications if desired. Existing stored personal tokens continue to work and can populate the picker; there is no manual token entry in the new UI.
+
+### One-time OAuth setup for the app owner
+
+ChatGPT's GitHub connector authorizes ChatGPT; it cannot provide an OAuth identity for this separate Android application. Register a dedicated OAuth app for Vaultdown:
+
+1. Open [GitHub → Developer settings → New OAuth App](https://github.com/settings/applications/new).
+2. Name: **Vaultdown**. Homepage: `https://github.com/ziyanghoe/vaultdown-android`. Callback URL: `https://github.com/ziyanghoe/vaultdown-android` (required by registration, unused by device flow).
+3. Enable **Device flow** on the OAuth app settings page.
+4. Copy the **Client ID**, not the client secret. In this source repository, create an Actions **variable** named `GITHUB_CLIENT_ID` under Settings → Secrets and variables → Actions → Variables.
+5. Run the Android workflow manually, then download the new APK. For a local build use `gradle -PgithubClientId=YOUR_CLIENT_ID :app:assembleDebug`.
+
+The Client ID is public and is compiled into the APK. No client secret or access token belongs in CI or source. A build without the Client ID remains usable offline and with a previously saved connection, but displays that sign-in is unavailable.
+
+This implementation uses OAuth device authorization with `repo` scope for private repository editing. This scope is broad: GitHub grants access beyond the single repository selected for syncing. Only select and authorize an OAuth app you trust. Organization policies may require approval. Tokens and optional refresh tokens are encrypted with Android Keystore; expiring sessions refresh automatically. A revoked or expired refresh token requires signing in again. Pending authorization is held only in memory, survives activity rotation, and is cancelled when the connection dialog closes. After process death, start sign-in again.
+
+Reference: [GitHub OAuth device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
 
 ## Sync behavior
 
@@ -88,8 +106,8 @@ No force-push or unconditional overwrite is used. Keeping your version explicitl
 
 ## Security and current scope
 
-- Token encryption uses AES-256-GCM and an Android Keystore key. The token field is masked, excluded from saved state, and protected against screenshots while open.
-- Requests go only to `https://api.github.com`. Redirects are disabled. Credentials, request bodies, and server error bodies are not logged.
+- Token encryption uses AES-256-GCM and an Android Keystore key. Credentials never enter saved state; the connection dialog is protected against screenshots.
+- API requests go only to `https://api.github.com`; OAuth exchanges go only to fixed `https://github.com/login/` endpoints. Redirects are disabled. Credentials, request bodies, and server error bodies are not logged.
 - Local notes are in app-private SQLite storage, **not a separately encrypted database**. Android backup/device-transfer exclusions are configured for both notes and credentials.
 - Preview is rendered by native TextView/Markwon, without WebView, JavaScript, remote image fetching, or URL dispatch.
 - Supported content: UTF-8 `.md` and `.markdown` files up to 1 MiB each, at most 2,000 supported notes per repository. Large recursive API responses are bounded; very large repositories fail explicitly.

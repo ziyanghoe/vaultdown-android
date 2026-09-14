@@ -24,5 +24,8 @@ PASS queued typing after acknowledgment of the displayed text stays editable
 PASS cancellation leaves queued edits intact
 PASS tree orders folders first and preserves nesting
 PASS collapsed folders hide children; search reveals them
+PASS OAuth polling respects server interval and repeated slow down
+PASS OAuth code expires at the monotonic deadline
+PASS OAuth denial and unknown errors stop polling
 
-26 tests passed.
+29 tests passed.

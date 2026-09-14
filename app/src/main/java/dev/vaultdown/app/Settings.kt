@@ -30,28 +30,43 @@ class Settings(context: Context) {
         val json = JSONObject(it)
         RepoConfig(json.getString("owner"), json.getString("repo"), json.getString("branch"))
     }
-    @Synchronized fun token(): String? {
-        val payload = prefs.getString("token", null) ?: return null
-        try {
+    @Synchronized fun session(): GitHubSession? {
+        val payload = prefs.getString("oauth_session", null) ?: prefs.getString("token", null) ?: return null
+        val raw = try {
             val parts = payload.split(":")
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)))
-            return String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), Charsets.UTF_8)
-        } catch (_: Exception) { throw IllegalStateException("Unlock your device or enter your GitHub token again in Settings.") }
+            String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), Charsets.UTF_8)
+        } catch (_: Exception) { throw IllegalStateException("Unlock your device or sign in to GitHub again.") }
+        val session = if (prefs.contains("oauth_session")) GitHubSession.fromJson(JSONObject(raw)) else GitHubSession(raw)
+        if (session.expiresAt != 0L && session.expiresAt <= System.currentTimeMillis() + 60_000) {
+            val renewed = GitHubLogin.refresh(session)
+            check(prefs.edit().putString("oauth_session", encrypt(renewed.json().toString())).remove("token").commit()) {
+                "Could not save the renewed GitHub session. Sign in again."
+            }
+            return renewed
+        }
+        return session
     }
-    @Synchronized fun save(config: RepoConfig, token: String) {
-        config.validate()
-        require(token.isNotBlank() && token.none { it.isWhitespace() }) { "Enter a valid GitHub token." }
+    @Synchronized fun token(): String? = session()?.access
+    private fun encrypt(raw: String): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
-        val encrypted = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
-            Base64.encodeToString(cipher.doFinal(token.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        return Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
+            Base64.encodeToString(cipher.doFinal(raw.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+    }
+    @Synchronized fun save(config: RepoConfig, session: GitHubSession) {
+        config.validate()
+        require(session.access.isNotBlank() && session.access.all { it.code in 33..126 }) { "Sign in to GitHub again." }
         val configJson = JSONObject().put("owner", config.owner).put("repo", config.repo).put("branch", config.branch)
-        check(prefs.edit().putString("config", configJson.toString()).putString("token", encrypted).commit()) {
+        check(prefs.edit().putString("config", configJson.toString())
+            .putString("oauth_session", encrypt(session.json().toString())).remove("token").commit()) {
             "Could not save connection settings."
         }
     }
-    @Synchronized fun disconnect() { check(prefs.edit().remove("token").remove("config").commit()) }
+    @Synchronized fun disconnect() {
+        check(prefs.edit().remove("token").remove("oauth_session").remove("config").commit())
+    }
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(alias, null) as? SecretKey)?.let { return it }

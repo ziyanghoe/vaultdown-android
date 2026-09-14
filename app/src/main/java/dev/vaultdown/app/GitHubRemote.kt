@@ -87,11 +87,11 @@ class GitHubRemote(private val config: RepoConfig, private val token: String) : 
                 val limited = response.header("X-RateLimit-Remaining") == "0" || response.header("Retry-After") != null
                 val message = when {
                     limited -> "GitHub rate limit reached. Sync will retry later."
-                    response.code == 401 -> "GitHub token expired or invalid. Update it in Settings."
+                    response.code == 401 -> "GitHub session expired or invalid. Sign in again in Settings."
                     response.code == 403 -> "GitHub denied access. Check Contents read/write permission, organization approval, and branch rules."
-                    response.code == 404 -> "Repository or branch not found. Check its name, token access, and that the branch is initialized."
+                    response.code == 404 -> "Repository or branch not found. Sign in again and choose an initialized branch."
                     response.code == 409 || response.code == 422 -> "GitHub changed during sync or rejected the commit. Retrying will check for conflicts; also check branch rules."
-                    response.code in 300..399 -> "Repository was moved. Update its owner and name in Settings."
+                    response.code in 300..399 -> "Repository was moved. Choose it again in Settings."
                     else -> "GitHub returned HTTP ${response.code}. Your local notes are saved."
                 }
                 throw GitHubFailure(message, limited || response.code in listOf(409, 422, 429) || response.code >= 500)
