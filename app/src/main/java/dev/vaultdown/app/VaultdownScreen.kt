@@ -289,7 +289,7 @@ import kotlinx.coroutines.withContext
         onDispose { activity?.protectCredentials(false) }
     }
     AlertDialog(onDismissRequest = { if (!ui.connecting) onDismiss() },
-        properties = DialogProperties(securePolicy = SecureFlagPolicy.Secure),
+        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text("Connect your notes") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Use a GitHub repository that already has a commit. Its Markdown files will sync in both directions.",
