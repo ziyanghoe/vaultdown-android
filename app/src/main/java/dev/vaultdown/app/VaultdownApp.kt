@@ -95,6 +95,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             } catch (_: android.database.SQLException) {
                 app.changed("Local storage is unavailable. Check free space before editing or syncing again.", false)
                 Result.failure()
+            } catch (_: Exception) {
+                // A persisted connection or unexpected API response must never crash a later app launch.
+                app.changed("GitHub connection needs attention. Local notes are still available.", false)
+                Result.failure()
             }
         }
     }

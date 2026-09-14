@@ -53,13 +53,20 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val offline = app.database.vault("offline")
-                if (offline.all().isEmpty()) offline.create("Welcome.md", WELCOME)
-            }
-            app.status.collect {
-                state.value = state.value.copy(status = it)
-                refresh()
+            try {
+                withContext(Dispatchers.IO) {
+                    val offline = app.database.vault("offline")
+                    if (offline.all().isEmpty()) offline.create("Welcome.md", WELCOME)
+                }
+                app.status.collect {
+                    state.value = state.value.copy(status = it)
+                    try { refresh() }
+                    catch (_: Exception) {
+                        state.value = state.value.copy(error = "Could not reopen the local vault. Your GitHub connection remains unchanged.")
+                    }
+                }
+            } catch (_: Exception) {
+                state.value = state.value.copy(error = "Could not prepare the local vault. Reopen the app after checking device storage.")
             }
         }
     }

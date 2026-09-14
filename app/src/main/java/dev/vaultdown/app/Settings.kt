@@ -26,27 +26,35 @@ data class RepoConfig(val owner: String, val repo: String, val branch: String) {
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("connection", Context.MODE_PRIVATE)
     private val alias = "vaultdown.github-token.v1"
-    @Synchronized fun config(): RepoConfig? = prefs.getString("config", null)?.let {
-        val json = JSONObject(it)
-        RepoConfig(json.getString("owner"), json.getString("repo"), json.getString("branch"))
+    @Synchronized fun config(): RepoConfig? {
+        val stored = prefs.getString("config", null) ?: return null
+        return try {
+            val json = JSONObject(stored)
+            RepoConfig(json.getString("owner"), json.getString("repo"), json.getString("branch")).also { it.validate() }
+        } catch (_: Exception) {
+            // A damaged preference must never block startup. Cached notes remain in their own database.
+            prefs.edit().remove("config").commit()
+            null
+        }
     }
     @Synchronized fun session(): GitHubSession? {
+        val oauth = prefs.contains("oauth_session")
         val payload = prefs.getString("oauth_session", null) ?: prefs.getString("token", null) ?: return null
-        val raw = try {
-            val parts = payload.split(":")
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)))
-            String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), Charsets.UTF_8)
-        } catch (_: Exception) { throw IllegalStateException("Unlock your device or sign in to GitHub again.") }
-        val session = if (prefs.contains("oauth_session")) GitHubSession.fromJson(JSONObject(raw)) else GitHubSession(raw)
-        if (session.expiresAt != 0L && session.expiresAt <= System.currentTimeMillis() + 60_000) {
-            val renewed = GitHubLogin.refresh(session)
-            check(prefs.edit().putString("oauth_session", encrypt(renewed.json().toString())).remove("token").commit()) {
-                "Could not save the renewed GitHub session. Sign in again."
-            }
-            return renewed
+        return try {
+            val raw = decrypt(payload)
+            val session = if (oauth) GitHubSession.fromJson(JSONObject(raw)) else GitHubSession(raw)
+            if (session.expiresAt != 0L && session.expiresAt <= System.currentTimeMillis() + 60_000) {
+                val renewed = GitHubLogin.refresh(session)
+                check(prefs.edit().putString("oauth_session", encrypt(renewed.json().toString())).remove("token").commit()) {
+                    "Could not save the renewed GitHub session."
+                }
+                renewed
+            } else session
+        } catch (_: Exception) {
+            // Keep the repository cache, but discard credentials that can no longer be safely restored.
+            prefs.edit().remove("oauth_session").remove("token").commit()
+            null
         }
-        return session
     }
     @Synchronized fun token(): String? = session()?.access
     private fun encrypt(raw: String): String {
