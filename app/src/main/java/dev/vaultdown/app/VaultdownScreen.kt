@@ -108,8 +108,16 @@ import kotlinx.coroutines.withContext
 
 @Composable private fun Sidebar(ui: VaultUi, onSelect: (String) -> Unit, onNew: () -> Unit, onSettings: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    var collapsed by remember { mutableStateOf(setOf<String>()) }
-    val rows = remember(ui.notes, collapsed, query) { FileTree.rows(ui.notes.map { it.path }, collapsed, query) }
+    var expanded by remember(ui.config?.vaultId) { mutableStateOf(setOf<String>()) }
+    val paths = remember(ui.notes) { ui.notes.map { it.path } }
+    val folders = remember(paths) {
+        buildSet<String> {
+            paths.forEach { path ->
+                path.indices.filter { path[it] == '/' }.forEach { add(path.substring(0, it)) }
+            }
+        }
+    }
+    val rows = remember(paths, folders, expanded, query) { FileTree.rows(paths, folders - expanded, query) }
     val notes = remember(ui.notes) { ui.notes.associateBy { it.path } }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(24.dp))
@@ -130,6 +138,9 @@ import kotlinx.coroutines.withContext
         Spacer(Modifier.height(22.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("WORKSPACE", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, letterSpacing = 1.8.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = { expanded = emptySet(); query = "" }, enabled = expanded.isNotEmpty() || query.isNotEmpty()) {
+                Text("Collapse all", fontSize = 11.sp)
+            }
             IconButton(onClick = onNew, enabled = ui.initialized) { Icon(Icons.Outlined.Add, "New note", Modifier.size(20.dp)) }
         }
         Text(ui.config?.repo ?: "Offline notes", fontWeight = FontWeight.Medium, fontSize = 14.sp)
@@ -142,7 +153,7 @@ import kotlinx.coroutines.withContext
                 val active = row.path == ui.selected && !row.folder
                 Surface(color = if (active) Violet.copy(alpha = .12f) else MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().clickable {
-                        if (row.folder) collapsed = if (row.path in collapsed) collapsed - row.path else collapsed + row.path
+                        if (row.folder) expanded = if (row.path in expanded) expanded - row.path else expanded + row.path
                         else onSelect(row.path)
                     }) {
                     Row(Modifier.padding(start = (8 + row.depth * 14).dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
